@@ -3,7 +3,6 @@
 #include <stdlib.h>
 
 // --- (5p) Colors Configuration ---
-// Using ANSI Escape Codes for selective coloring
 #define RESET   "\033[0m"
 #define RED     "\033[1;31m"
 #define GREEN   "\033[1;32m"
@@ -14,8 +13,8 @@
 #define MAX_PLAYERS 50
 #define MAX_NAME 30
 #define MAX_HISTORY 20
+#define FILE_NAME "matches.txt"
 
-// --- (5p) Structs Implementation ---
 typedef struct {
     char name[MAX_NAME];
     int wins;
@@ -27,7 +26,41 @@ typedef struct {
 Player players[MAX_PLAYERS];
 int player_count = 0;
 
-// --- (5p) Functions: Logic Extraction ---
+// --- (5p) Functions: File Handling ---
+
+void save_to_file() {
+    FILE *f = fopen(FILE_NAME, "w");
+    if (f == NULL) return;
+
+    fprintf(f, "%d\n", player_count);
+    for (int i = 0; i < player_count; i++) {
+        fprintf(f, "%s %d %d %d\n", players[i].name, players[i].wins, players[i].losses, players[i].match_count);
+        for (int j = 0; j < players[i].match_count; j++) {
+            fprintf(f, "%s\n", players[i].history[j]);
+        }
+    }
+    fclose(f);
+}
+
+void load_from_file() {
+    FILE *f = fopen(FILE_NAME, "r");
+    if (f == NULL) return; 
+
+    if (fscanf(f, "%d", &player_count) != 1) {
+        fclose(f);
+        return;
+    }
+
+    for (int i = 0; i < player_count; i++) {
+        fscanf(f, "%s %d %d %d", players[i].name, &players[i].wins, &players[i].losses, &players[i].match_count);
+        fgetc(f); 
+        for (int j = 0; j < players[i].match_count; j++) {
+            fgets(players[i].history[j], 100, f);
+            players[i].history[j][strcspn(players[i].history[j], "\n")] = 0; 
+        }
+    }
+    fclose(f);
+}
 
 int get_or_create_player(char *name) {
     for (int i = 0; i < player_count; i++) {
@@ -43,29 +76,30 @@ int get_or_create_player(char *name) {
     return -1;
 }
 
+// --- Logic Update: 21 Point Validation ---
 void add_match() {
     char name1[MAX_NAME], name2[MAX_NAME];
     int score1, score2;
 
-    printf("\n--- " YELLOW "Add Match Entry" RESET " ---");
+    printf("\n--- " YELLOW "Match Entry (Max 21 Points)" RESET " ---");
+    printf("\nFormat: [Name1] [Score1] [Score2] [Name2]");
+    printf("\nInput: ");
     
-    // (5p) Validations: Explicit format and input checking
-    printf("\nEnter " BOLD "Player 1 Name" RESET " (single word): ");
-    if (scanf("%s", name1) != 1) return;
-
-    printf("Enter " CYAN "%s's" RESET " score (integer 0-30): ", name1);
-    while (scanf("%d", &score1) != 1 || score1 < 0) {
-        printf(RED "Error:" RESET " Please enter a valid positive integer for score: ");
-        while(getchar() != '\n'); // clear buffer
+    // (5p) Validation for Format
+    if (scanf("%s %d %d %s", name1, &score1, &score2, name2) != 4) {
+        printf(RED "Invalid input format!\n" RESET);
+        while(getchar() != '\n'); 
+        return;
     }
 
-    printf("Enter " BOLD "Player 2 Name" RESET " (single word): ");
-    if (scanf("%s", name2) != 1) return;
-
-    printf("Enter " CYAN "%s's" RESET " score (integer 0-30): ", name2);
-    while (scanf("%d", &score2) != 1 || score2 < 0) {
-        printf(RED "Error:" RESET " Please enter a valid positive integer for score: ");
-        while(getchar() != '\n'); 
+    // (5p) Validation for Table Tennis Rules (0-21)
+    if (score1 > 21 || score2 > 21 || score1 < 0 || score2 < 0) {
+        printf(RED "Error: Scores must be between 0 and 21!\n" RESET);
+        return;
+    }
+    if (score1 == score2) {
+        printf(RED "Error: A match cannot end in a tie!\n" RESET);
+        return;
     }
 
     int p1_idx = get_or_create_player(name1);
@@ -87,17 +121,13 @@ void add_match() {
     if (players[p2_idx].match_count < MAX_HISTORY)
         strcpy(players[p2_idx].history[players[p2_idx].match_count++], match_info);
 
-    printf("\n" GREEN "✔" RESET " Match between " CYAN "%s" RESET " and " CYAN "%s" RESET " recorded!\n", name1, name2);
+    save_to_file(); 
+    printf(GREEN "Result saved to matches.txt!\n" RESET);
 }
 
 void view_rankings() {
-    printf("\n--- " YELLOW "Global Rankings" RESET " ---\n");
-    if (player_count == 0) {
-        printf("No records found.\n");
-        return;
-    }
-
-    // Sort players by wins
+    printf("\n--- " YELLOW "Rankings" RESET " ---\n");
+    // Sort logic (Bubble Sort)
     for (int i = 0; i < player_count - 1; i++) {
         for (int j = 0; j < player_count - i - 1; j++) {
             if (players[j].wins < players[j+1].wins) {
@@ -107,45 +137,37 @@ void view_rankings() {
             }
         }
     }
-
-    printf("%-15s | %-5s | %-5s\n", "Player Name", "Wins", "Losses");
-    printf("----------------------------------\n");
+    printf("%-15s | %-5s | %-5s\n", "Player", "Wins", "Losses");
     for (int i = 0; i < player_count; i++) {
-        // (5p) Colors: Only coloring specific elements (the name)
         printf(CYAN "%-15s" RESET " | %-5d | %-5d\n", players[i].name, players[i].wins, players[i].losses);
     }
 }
 
 void view_player_history() {
     char search_name[MAX_NAME];
-    printf("\nEnter " BOLD "Player Name" RESET " to search: ");
+    printf("\nEnter player name: ");
     scanf("%s", search_name);
 
     for (int i = 0; i < player_count; i++) {
         if (strcmp(players[i].name, search_name) == 0) {
             printf("\nHistory for " CYAN "%s" RESET ":\n", players[i].name);
-            printf(GREEN "Wins: %d" RESET " | " RED "Losses: %d" RESET "\n", players[i].wins, players[i].losses);
             for (int j = 0; j < players[i].match_count; j++) {
                 printf("  • %s\n", players[i].history[j]);
             }
             return;
         }
     }
-    printf(RED "✖ Player '%s' not found." RESET "\n", search_name);
+    printf(RED "Player not found.\n" RESET);
 }
 
 int main() {
+    load_from_file(); 
+    
     int choice;
     while (1) {
-        printf("\n" BOLD "=== TABLE TENNIS MGMT SYSTEM ===" RESET "\n");
-        printf("1. " YELLOW "Add" RESET " Match Result\n");
-        printf("2. " YELLOW "View" RESET " Rankings\n");
-        printf("3. " YELLOW "Search" RESET " Player History\n");
-        printf("4. " RED "Exit" RESET "\n");
-        printf("Select Option (1-4): ");
-
+        printf("\n" BOLD "TABLE TENNIS MANAGER" RESET);
+        printf("\n1. Add Match | 2. Rankings | 3. History | 4. Exit\nChoice: ");
         if (scanf("%d", &choice) != 1) {
-            printf(RED "Invalid input!" RESET " Use numbers 1-4.\n");
             while(getchar() != '\n');
             continue;
         }
@@ -154,8 +176,8 @@ int main() {
             case 1: add_match(); break;
             case 2: view_rankings(); break;
             case 3: view_player_history(); break;
-            case 4: printf("Exiting...\n"); return 0;
-            default: printf(RED "Invalid choice." RESET "\n");
+            case 4: save_to_file(); return 0;
+            default: printf("Try again.\n");
         }
     }
     return 0;
